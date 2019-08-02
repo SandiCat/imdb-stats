@@ -1,0 +1,38 @@
+name:                imdb-stats
+version:             0.1.0.0
+#synopsis:
+#description:
+homepage:            https://github.com/githubuser/imdb-stats#readme
+license:             BSD3
+author:              Author name here
+maintainer:          example@example.com
+copyright:           2019 Author name here
+category:            Web
+extra-source-files:
+- README.md
+
+dependencies:
+  - base >= 4.7 && < 5
+  - containers
+  - text
+  - scalpel
+  - extra
+  - url
+  - interpolate
+  - aeson
+  - bytestring
+  - vector
+  
+executables:
+  imdb-stats:
+    source-dirs:      src
+    main:             Main.hs
+
+tests:
+  spec:
+    main: Test.hs
+    source-dirs:
+      - test
+      - src
+    dependencies:
+      - HUnit

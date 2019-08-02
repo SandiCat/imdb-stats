@@ -1,0 +1,2 @@
+emina lista, sa []: (5.65 secs, 592,020,896 bytes)
+100+ lista: (13.60 secs, 2,817,619,496 bytes)
