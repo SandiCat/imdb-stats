@@ -1,4 +1,7 @@
-emina lista, sa []: (5.65 secs, 592,020,896 bytes)
-emina lista, sa vector: (3.81 secs, 590,689,240 bytes)
-100+ lista, sa []: (13.60 secs, 2,817,619,496 bytes)
-100+ lista, sa vector: (11.09 secs, 2,849,803,424 bytes)
+emina lista: (5.65 secs, 592,020,896 bytes)
+100+ lista: (13.60 secs, 2,817,619,496 bytes)
+[] -> Vector
+emina lista: (3.81 secs, 590,689,240 bytes)
+100+ lista: (11.09 secs, 2,849,803,424 bytes)
+Text -> BS (zapravo usporava)
+all: (1808.36 secs, 234,046,877,608 bytes)

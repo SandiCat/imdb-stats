@@ -33,12 +33,15 @@ import Control.Monad.Extra (fromMaybeM)
 import Control.Monad.Fail (MonadFail)
 import qualified Data.Vector as Vector
 import Data.Vector (Vector)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS.Char8
+import qualified Data.Attoparsec.ByteString.Char8 as AP.BS
 
 data Age = AllAges | LT18 | A18to29 | A30to44 | AGT45 deriving (Show, Eq, Ord, Bounded, Enum)
 data Gender = AllGenders | Male | Female deriving (Show, Eq, Ord, Bounded, Enum)
 
 type Demographic = (Age, Gender)
-newtype Rating = Rating Float deriving (Show)
+newtype Rating = Rating Double deriving (Show)
 newtype NumUsers = NumUsers Int deriving (Show)
 data RatingStats = RatingStats {rating :: Rating, numUsers :: NumUsers}
 
@@ -62,7 +65,7 @@ tableToMap table =
 
 -- TODO: operator (//) implies arbitrarly deep nesting, i need direct nesting (children)
 
-scrapeRatingTable :: Scraper Text.Text RatingTable
+scrapeRatingTable :: Scraper BS.ByteString RatingTable
 scrapeRatingTable =
   chroots ("td" @. "ratingTable") cell
   & chroots "tr"
@@ -71,23 +74,23 @@ scrapeRatingTable =
   & fmap (\(_:x:_:[]) -> x) -- the second table is the relevant one
   -- TODO: ^^ treba bacit neki maybe, nekako u monad strpat činjenicu da nekad ne prolazi
   where
-    cell :: Scraper Text.Text RatingStats
+    cell :: Scraper BS.ByteString RatingStats
     cell = do
       rating <- text $ "div" @. "bigcell"
       numUsers <- text $ "div" @. "smallcell" // "a"
 
       -- TODO: maybe a monad transformer for this?
-      case (Text.Read.rational rating, Text.Read.decimal $ Text.filter isDigit numUsers) of
-        (Right (parsedRating, _), Right (parsedNumUsers, _)) ->
+      case (AP.BS.parse AP.BS.double rating, BS.Char8.readInt $ BS.filter AP.BS.isDigit_w8 numUsers) of
+        (AP.BS.Done _ parsedRating, Just (parsedNumUsers, _)) ->
           return $ RatingStats (Rating parsedRating) (NumUsers parsedNumUsers)
         _ ->
           fail "can't parse cell"
 
-scrapeMoviesFromListPage :: Scraper Text.Text (Vector URL.URL)
+scrapeMoviesFromListPage :: Scraper BS.ByteString (Vector URL.URL)
 scrapeMoviesFromListPage =
   ("div" @. "lister-list" // "h3" @. "lister-item-header" // "a")
   & attrs "href"
-  & fmap (Vector.fromList . catMaybes . fmap (URL.importURL . Text.unpack))
+  & fmap (Vector.fromList . catMaybes . fmap (URL.importURL . BS.Char8.unpack))
 
 scrapeWholeList :: String -> IO (Vector URL.URL)
 scrapeWholeList url =
@@ -95,6 +98,7 @@ scrapeWholeList url =
   where
     rec :: String -> Int -> Vector URL.URL -> IO (Vector URL.URL)
     rec url page collected = do
+      print page
       Just links <- scrapeURL (url ++ "?sort=list_order,asc&st_dt=&mode=detail&page=" ++ show page) scrapeMoviesFromListPage
       if Vector.null links then -- stop iterating when scraping fails (on 404)
         return collected
@@ -128,18 +132,17 @@ catMaybesT :: (Traversable t, Monoid (t a)) => t (Maybe a) -> t a
 catMaybesT t =
   fromMaybe mempty $ traverse id t
 
+-- TODO: shit don't work anymore
 -- is the quantifier the only way to get this to typecheck?
 getAllRatings ::  (Traversable t, forall a. Monoid (t a)) => t URL.URL -> IO (t Movie)
 getAllRatings urls =
   catMaybesT <$> mapM f urls
   where
     f :: URL.URL -> IO (Maybe Movie)
-    f url =
-      scrapeURL (URL.exportURL ratingsURL) scrapeRatingTable
-      & fmap (fmap $ Movie ratingsURL)
-      where
-        ratingsURL =
-          addImdbHost $ moviePageToRatingsPage url
+    f url = do
+      let ratingsURL = addImdbHost $ moviePageToRatingsPage url
+      maybeMovie <- scrapeURL (URL.exportURL ratingsURL) scrapeRatingTable
+      return (fmap (Movie ratingsURL) maybeMovie) 
 
 
 instance Aeson.ToJSON URL.URL where
