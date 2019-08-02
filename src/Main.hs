@@ -7,6 +7,9 @@
 {-# LANGUAGE  QuasiQuotes #-}
 {-# LANGUAGE  StandaloneDeriving #-}
 {-# LANGUAGE  StrictData #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+
 
 module Main where
 
@@ -28,6 +31,8 @@ import qualified Data.Aeson as Aeson
 import Data.Aeson.Types (Parser)
 import Control.Monad.Extra (fromMaybeM)
 import Control.Monad.Fail (MonadFail)
+import qualified Data.Vector as Vector
+import Data.Vector (Vector)
 
 data Age = AllAges | LT18 | A18to29 | A30to44 | AGT45 deriving (Show, Eq, Ord, Bounded, Enum)
 data Gender = AllGenders | Male | Female deriving (Show, Eq, Ord, Bounded, Enum)
@@ -78,27 +83,23 @@ scrapeRatingTable =
         _ ->
           fail "can't parse cell"
 
-scrapeMoviesFromListPage :: Scraper Text.Text [URL.URL]
+scrapeMoviesFromListPage :: Scraper Text.Text (Vector URL.URL)
 scrapeMoviesFromListPage =
   ("div" @. "lister-list" // "h3" @. "lister-item-header" // "a")
   & attrs "href"
-  & fmap (catMaybes . fmap (URL.importURL . Text.unpack))
+  & fmap (Vector.fromList . catMaybes . fmap (URL.importURL . Text.unpack))
 
-scrapeWholeList :: String -> IO [URL.URL]
-scrapeWholeList url = 
-  let
-    f :: Int -> IO (Maybe [URL.URL])
-    f page =
-      scrapeURL (url ++ "?sort=list_order,asc&st_dt=&mode=detail&page=" ++ show page) scrapeMoviesFromListPage
-
-    stopPredicate :: Maybe [URL.URL] -> Bool
-    stopPredicate (Just []) = True
-    stopPredicate Nothing = True
-    stopPredicate _ = False
-
-  in do
-    pages <- mapWhile f stopPredicate [1..]
-    return $ mconcat $ catMaybes pages
+scrapeWholeList :: String -> IO (Vector URL.URL)
+scrapeWholeList url =
+  rec url 1 Vector.empty
+  where
+    rec :: String -> Int -> Vector URL.URL -> IO (Vector URL.URL)
+    rec url page collected = do
+      Just links <- scrapeURL (url ++ "?sort=list_order,asc&st_dt=&mode=detail&page=" ++ show page) scrapeMoviesFromListPage
+      if Vector.null links then -- stop iterating when scraping fails (on 404)
+        return collected
+      else
+        rec url (page + 1) (collected <> links)
 
 -- TODO: generalize over list, traversable?
 mapWhile :: (Monad m) => (a -> m b) -> (b -> Bool) -> [a] -> m [b]
@@ -123,9 +124,14 @@ addImdbHost :: URL.URL -> URL.URL
 addImdbHost url =
   url {URL.url_type = URL.Absolute $ URL.Host (URL.HTTP True) "www.imdb.com" Nothing}
 
-getAllRatings :: [URL.URL] -> IO [Movie]
+catMaybesT :: (Traversable t, Monoid (t a)) => t (Maybe a) -> t a
+catMaybesT t =
+  fromMaybe mempty $ traverse id t
+
+-- is the quantifier the only way to get this to typecheck?
+getAllRatings ::  (Traversable t, forall a. Monoid (t a)) => t URL.URL -> IO (t Movie)
 getAllRatings urls =
-  catMaybes <$> mapM f urls
+  catMaybesT <$> mapM f urls
   where
     f :: URL.URL -> IO (Maybe Movie)
     f url =
@@ -138,7 +144,6 @@ getAllRatings urls =
 
 instance Aeson.ToJSON URL.URL where
   toJSON = Aeson.String . Text.pack . URL.exportURL
-
 
 instance Aeson.FromJSON URL.URL where
   parseJSON (Aeson.String str) = lift $ URL.importURL $ Text.unpack str
@@ -155,7 +160,7 @@ testGetAllRatings = do
   links <- scrapeWholeList "https://www.imdb.com/list/ls023670262/"
   movies <- getAllRatings links
   putStrLn $ [i|#{length movies}/19|]
-  print $ take 5 movies
+  print $ Vector.take 5 movies
 
 testTable :: IO ()
 testTable = do
