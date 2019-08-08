@@ -113,17 +113,6 @@ scrapeWholeList url = rec url 1 Vector.empty
            return collected
       else rec url (page + 1) (collected <> links)
 
--- TODO: generalize over list, traversable?
-mapWhile :: (Monad m) => (a -> m b) -> (b -> Bool) -> [a] -> m [b]
-mapWhile f stopPredicate (x : xs) = do
-  y <- f x
-  if stopPredicate y
-    then return []
-    else do
-      ys <- mapWhile f stopPredicate xs
-      return $ y : ys
-mapWhile f _ [] = return []
-
 
 data Movie = Movie { movieURL :: URL.URL, ratingTable :: RatingTable } deriving (Show)
 
@@ -163,7 +152,6 @@ instance Aeson.FromJSON URL.URL where
     lift (Just x) = return x
     lift Nothing = fail "got Nothing while trying to lift"
   parseJSON _ = fail "URL has to be a string"
-
 
 testGetAllRatings :: IO ()
 testGetAllRatings = do
