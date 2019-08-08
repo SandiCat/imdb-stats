@@ -84,11 +84,11 @@ scrapeRatingTable =
 
     -- TODO: maybe a monad transformer for this?
     case
-        ( AP.BS.parse AP.BS.double rating
-        , BS.Char8.readInt $ BS.filter AP.BS.isDigit_w8 numUsers
+        ( AP.BS.parseOnly AP.BS.double rating & trace "rating"
+        , BS.Char8.readInt $ BS.filter AP.BS.isDigit_w8 numUsers & trace "users"
         )
       of
-        (AP.BS.Done _ parsedRating, Just (parsedNumUsers, _)) ->
+        (Right parsedRating, Just (parsedNumUsers, _)) ->
           return $ RatingStats (Rating parsedRating) (NumUsers parsedNumUsers)
         _ -> fail "can't parse cell"
 
@@ -140,7 +140,6 @@ addImdbHost url = url
 catMaybesT :: (Traversable t, Monoid (t a)) => t (Maybe a) -> t a
 catMaybesT t = fromMaybe mempty $ traverse id t
 
--- TODO: shit don't work anymore
 -- is the quantifier the only way to get this to typecheck?
 getAllRatings
   :: (Traversable t, forall a . Monoid (t a)) => t URL.URL -> IO (t Movie)
