@@ -13,29 +13,34 @@
 
 module Main where
 
-import qualified Data.Map.Strict as Map
-import qualified Data.Text as Text
-import qualified Data.Text.Read as Text.Read
-import Text.HTML.Scalpel
-import Control.Monad
-import Data.Char (isDigit)
-import Data.List.Extra  (enumerate)
-import Data.Function ((&))
-import Debug.Trace
-import Data.List.Extra (intercalate)
-import Data.Maybe (catMaybes, fromMaybe)
-import qualified Network.URL as URL
-import Data.String.Interpolate
-import qualified GHC.Generics as Generics
-import qualified Data.Aeson as Aeson
-import Data.Aeson.Types (Parser)
-import Control.Monad.Extra (fromMaybeM)
-import Control.Monad.Fail (MonadFail)
-import qualified Data.Vector as Vector
-import Data.Vector (Vector)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS.Char8
-import qualified Data.Attoparsec.ByteString.Char8 as AP.BS
+import qualified Data.Map.Strict               as Map
+import qualified Data.Text                     as Text
+import qualified Data.Text.Read                as Text.Read
+import           Text.HTML.Scalpel
+import           Control.Monad
+import           Data.Char                      ( isDigit )
+import           Data.List.Extra                ( enumerate )
+import           Data.Function                  ( (&) )
+import           Debug.Trace
+import           Data.List.Extra                ( intercalate )
+import           Data.Maybe                     ( catMaybes
+                                                , fromMaybe
+                                                )
+import qualified Network.URL                   as URL
+import           Data.String.Interpolate
+import qualified GHC.Generics                  as Generics
+import qualified Data.Aeson                    as Aeson
+import           Data.Aeson.Types               ( Parser )
+import           Control.Monad.Extra            ( fromMaybeM )
+import           Control.Monad.Fail             ( MonadFail )
+import qualified Data.Vector                   as Vector
+import           Data.Vector                    ( Vector )
+import qualified Data.ByteString               as BS
+import qualified Data.ByteString.Char8         as BS.Char8
+import qualified Data.Attoparsec.ByteString.Char8
+                                               as AP.BS
+
+-- TODO: make requests in parallel to speed things up
 
 data Age = AllAges | LT18 | A18to29 | A30to44 | AGT45 deriving (Show, Eq, Ord, Bounded, Enum)
 data Gender = AllGenders | Male | Female deriving (Show, Eq, Ord, Bounded, Enum)
@@ -52,70 +57,72 @@ instance Show RatingStats where
 type RatingTable = Map.Map Demographic RatingStats
 
 instance {-# OVERLAPS #-} Show RatingTable where
-  show table =
-    Map.toList table
-    & map show
-    & intercalate "\n"
+  show table = Map.toList table & map show & intercalate "\n"
 
 a @. b = a @: [hasClass b]
 
 tableToMap :: [[RatingStats]] -> RatingTable
-tableToMap table =
-  Map.fromList $ zip [(age, gender) | gender <- enumerate :: [Gender], age <- enumerate :: [Age]] (mconcat table)
+tableToMap table = Map.fromList $ zip
+  [ (age, gender) | gender <- enumerate :: [Gender], age <- enumerate :: [Age] ]
+  (mconcat table)
 
 -- TODO: operator (//) implies arbitrarly deep nesting, i need direct nesting (children)
 
 scrapeRatingTable :: Scraper BS.ByteString RatingTable
 scrapeRatingTable =
   chroots ("td" @. "ratingTable") cell
-  & chroots "tr"
-  & fmap (tableToMap . tail) -- skip the first row, it's just headings (it will be an empty list)
-  & chroots ("div" @: ["class" @= "title-ratings-sub-page"] // "table")
-  & fmap (\(_:x:_:[]) -> x) -- the second table is the relevant one
+    & chroots "tr"
+    & fmap (tableToMap . tail) -- skip the first row, it's just headings (it will be an empty list)
+    & chroots ("div" @: ["class" @= "title-ratings-sub-page"] // "table")
+    & fmap (\(_ : x : _ : []) -> x) -- the second table is the relevant one
   -- TODO: ^^ treba bacit neki maybe, nekako u monad strpat činjenicu da nekad ne prolazi
-  where
-    cell :: Scraper BS.ByteString RatingStats
-    cell = do
-      rating <- text $ "div" @. "bigcell"
-      numUsers <- text $ "div" @. "smallcell" // "a"
+ where
+  cell :: Scraper BS.ByteString RatingStats
+  cell = do
+    rating <- text $ "div" @. "bigcell"
+    numUsers <- text $ "div" @. "smallcell" // "a"
 
-      -- TODO: maybe a monad transformer for this?
-      case (AP.BS.parse AP.BS.double rating, BS.Char8.readInt $ BS.filter AP.BS.isDigit_w8 numUsers) of
+    -- TODO: maybe a monad transformer for this?
+    case
+        ( AP.BS.parse AP.BS.double rating
+        , BS.Char8.readInt $ BS.filter AP.BS.isDigit_w8 numUsers
+        )
+      of
         (AP.BS.Done _ parsedRating, Just (parsedNumUsers, _)) ->
           return $ RatingStats (Rating parsedRating) (NumUsers parsedNumUsers)
-        _ ->
-          fail "can't parse cell"
+        _ -> fail "can't parse cell"
 
 scrapeMoviesFromListPage :: Scraper BS.ByteString (Vector URL.URL)
 scrapeMoviesFromListPage =
   ("div" @. "lister-list" // "h3" @. "lister-item-header" // "a")
-  & attrs "href"
-  & fmap (Vector.fromList . catMaybes . fmap (URL.importURL . BS.Char8.unpack))
+    & attrs "href"
+    & fmap
+        (Vector.fromList . catMaybes . fmap (URL.importURL . BS.Char8.unpack))
 
 scrapeWholeList :: String -> IO (Vector URL.URL)
-scrapeWholeList url =
-  rec url 1 Vector.empty
-  where
-    rec :: String -> Int -> Vector URL.URL -> IO (Vector URL.URL)
-    rec url page collected = do
-      print page
-      Just links <- scrapeURL (url ++ "?sort=list_order,asc&st_dt=&mode=detail&page=" ++ show page) scrapeMoviesFromListPage
-      if Vector.null links then -- stop iterating when scraping fails (on 404)
-        return collected
-      else
-        rec url (page + 1) (collected <> links)
+scrapeWholeList url = rec url 1 Vector.empty
+ where
+  rec :: String -> Int -> Vector URL.URL -> IO (Vector URL.URL)
+  rec url page collected = do
+    print page
+    Just links <- scrapeURL
+      (url ++ "?sort=list_order,asc&st_dt=&mode=detail&page=" ++ show page)
+      scrapeMoviesFromListPage
+    if Vector.null links
+      then -- stop iterating when scraping fails (on 404)
+           return collected
+      else rec url (page + 1) (collected <> links)
 
 -- TODO: generalize over list, traversable?
 mapWhile :: (Monad m) => (a -> m b) -> (b -> Bool) -> [a] -> m [b]
-mapWhile f stopPredicate (x:xs) = do
+mapWhile f stopPredicate (x : xs) = do
   y <- f x
-  if stopPredicate y then 
-    return []
-  else do
-    ys <- mapWhile f stopPredicate xs
-    return $ y:ys
-mapWhile f _ [] =
-  return []
+  if stopPredicate y
+    then return []
+    else do
+      ys <- mapWhile f stopPredicate xs
+      return $ y : ys
+mapWhile f _ [] = return []
 
 
 data Movie = Movie { movieURL :: URL.URL, ratingTable :: RatingTable } deriving (Show)
@@ -125,24 +132,25 @@ moviePageToRatingsPage (URL.URL url_type url_path url_params) =
   URL.URL url_type (url_path ++ "ratings") []
 
 addImdbHost :: URL.URL -> URL.URL
-addImdbHost url =
-  url {URL.url_type = URL.Absolute $ URL.Host (URL.HTTP True) "www.imdb.com" Nothing}
+addImdbHost url = url
+  { URL.url_type = URL.Absolute
+                     $ URL.Host (URL.HTTP True) "www.imdb.com" Nothing
+  }
 
 catMaybesT :: (Traversable t, Monoid (t a)) => t (Maybe a) -> t a
-catMaybesT t =
-  fromMaybe mempty $ traverse id t
+catMaybesT t = fromMaybe mempty $ traverse id t
 
 -- TODO: shit don't work anymore
 -- is the quantifier the only way to get this to typecheck?
-getAllRatings ::  (Traversable t, forall a. Monoid (t a)) => t URL.URL -> IO (t Movie)
-getAllRatings urls =
-  catMaybesT <$> mapM f urls
-  where
-    f :: URL.URL -> IO (Maybe Movie)
-    f url = do
-      let ratingsURL = addImdbHost $ moviePageToRatingsPage url
-      maybeMovie <- scrapeURL (URL.exportURL ratingsURL) scrapeRatingTable
-      return (fmap (Movie ratingsURL) maybeMovie) 
+getAllRatings
+  :: (Traversable t, forall a . Monoid (t a)) => t URL.URL -> IO (t Movie)
+getAllRatings urls = catMaybesT <$> mapM f urls
+ where
+  f :: URL.URL -> IO (Maybe Movie)
+  f url = do
+    let ratingsURL = addImdbHost $ moviePageToRatingsPage url
+    maybeMovie <- scrapeURL (URL.exportURL ratingsURL) scrapeRatingTable
+    return (fmap (Movie ratingsURL) maybeMovie)
 
 
 instance Aeson.ToJSON URL.URL where
@@ -150,13 +158,13 @@ instance Aeson.ToJSON URL.URL where
 
 instance Aeson.FromJSON URL.URL where
   parseJSON (Aeson.String str) = lift $ URL.importURL $ Text.unpack str
-    where
-      -- TODO: there's gotta be a function that does this. mtl?
-      lift :: (MonadFail m) => Maybe a -> m a
-      lift (Just x) = return x
-      lift Nothing = fail "got Nothing while trying to lift" 
+   where
+-- TODO: there's gotta be a function that does this. mtl?
+    lift :: (MonadFail m) => Maybe a -> m a
+    lift (Just x) = return x
+    lift Nothing = fail "got Nothing while trying to lift"
   parseJSON _ = fail "URL has to be a string"
-    
+
 
 testGetAllRatings :: IO ()
 testGetAllRatings = do
@@ -167,12 +175,16 @@ testGetAllRatings = do
 
 testTable :: IO ()
 testTable = do
-  Just h <- scrapeURL "https://www.imdb.com/title/tt0111161/ratings?ref_=tt_ov_rt" scrapeRatingTable
+  Just h <- scrapeURL
+    "https://www.imdb.com/title/tt0111161/ratings?ref_=tt_ov_rt"
+    scrapeRatingTable
   putStrLn $ show h
 
 testListPage :: IO ()
 testListPage = do
-  Just h <- scrapeURL "https://www.imdb.com/list/ls057823sad54/?sort=list_order,asc&st_dt=&mode=detail&page=2" scrapeMoviesFromListPage
+  Just h <- scrapeURL
+    "https://www.imdb.com/list/ls057823sad54/?sort=list_order,asc&st_dt=&mode=detail&page=2"
+    scrapeMoviesFromListPage
   -- mapM_ (\(MovieURL url) -> putStrLn url) h
   return ()
 
