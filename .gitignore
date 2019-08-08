@@ -2,3 +2,5 @@
 \.stack-work/
 
 imdb-stats\.cabal
+
+\.vscode/
