@@ -11,6 +11,10 @@ category:            Web
 extra-source-files:
 - README.md
 
+ghc-options:
+  - -threaded
+  - -rtsopts
+
 dependencies:
   - base >= 4.7 && < 5
   - containers
@@ -23,17 +27,32 @@ dependencies:
   - bytestring
   - vector
   - attoparsec
-  
-executables:
-  imdb-stats:
-    source-dirs:      src
-    main:             Main.hs
+  - async
+  - deepseq
+
+library:
+  source-dirs: src
+
+executable:
+  main: Main.hs
+  source-dirs: app
+  dependencies:
+    - imdb-stats
 
 tests:
   spec:
     main: Test.hs
     source-dirs:
       - test
-      - src
     dependencies:
       - HUnit
+      - imdb-stats
+
+benchmarks:
+  benchmark:
+    main: Bench.hs
+    source-dirs:
+      - bench
+    dependencies:
+      - imdb-stats
+      - criterion
