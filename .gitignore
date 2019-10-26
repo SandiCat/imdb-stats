@@ -12,3 +12,6 @@ imdb-stats.prof
 imdb-stats.ps
 
 plots/
+data/
+bench/
+profiling/
