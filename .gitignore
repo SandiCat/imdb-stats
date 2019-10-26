@@ -5,3 +5,10 @@
 imdb-stats\.cabal
 
 \.vscode/
+
+imdb-stats.aux
+imdb-stats.hp
+imdb-stats.prof
+imdb-stats.ps
+
+plots/

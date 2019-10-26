@@ -6,6 +6,13 @@ import qualified Data.Map as Map
 import qualified Data.Vector as Vector
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Aeson as Aeson
+import qualified Streamly as S
+import qualified Streamly.Prelude as S
+import qualified Streamly.Data.Fold as FL
+import qualified Streamly.Memory.Array as A
+import qualified Streamly.FileSystem.Handle as FH
+import qualified Streamly.Data.String as DS
+import qualified Network.URL as URL
 
 main = runTestTT $ TestList
     [ TestLabel "scrape ratings" $ TestCase $ do
@@ -34,14 +41,27 @@ main = runTestTT $ TestList
             assertFailure "no table scraped"
     , TestLabel "download and scrape all movies in a list" $ TestCase $ do
         links <- scrapeWholeList "https://www.imdb.com/list/ls023670262/"
-        assertBool "list of urls is not empty" $ length links > 0
-        movies <- getAllRatings links
-        assertBool "list of movies is not empty" $ length movies > 0
-        mapM_ (assertBool "table not empty" . (>0) . length . ratingTable) movies
+        testList $ Vector.toList links
     , TestLabel "read and scrape all movies in a list" $ TestCase $ do 
         Just links <- Aeson.decode <$> LBS.readFile "data/list_ema.json"
-        assertBool "list of urls is not empty" $ length links > 0
-        movies <- getAllRatings links
-        assertBool "list of movies is not empty" $ length movies > 0
-        mapM_ (assertBool "table not empty" . (>0) . length . ratingTable) movies
+        testList links
+    , TestLabel "movie list encoding" $ TestCase $ do
+        Just links <- Aeson.decode <$> LBS.readFile "data/list_ema.json"
+        encoded <- encodeMoviesStr links
+        case Aeson.eitherDecode encoded of
+          Left err -> do
+            LBS.putStrLn encoded
+            assertFailure err
+          Right movies -> testMovies movies
     ]
+
+testList :: [URL.URL] -> Assertion
+testList links = do
+  assertBool "list of urls is not empty" $ length links > 0
+  movies <- getAllMoviesIO links
+  testMovies movies
+
+testMovies :: [Movie] -> Assertion
+testMovies movies = do
+  assertBool "list of movies is not empty" $ length movies > 0
+  mapM_ (assertBool "table not empty" . (>0) . length . ratingTable) movies

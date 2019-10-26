@@ -40,6 +40,10 @@ packages:
 # extra-deps:
 #   - haskell-src-exts-1.21.0@sha256:02421cacaa48c055551b8e5796efc543301b7ea9527a38e1385403d2b85512fb,4467
 
+extra-deps:
+- github: composewell/streamly
+  commit: a9f3f9a0fb6c40903ed1560f2f619f3c27f1545c
+
 # Override default flag values for local packages and extra-deps
 # flags: {}
 
