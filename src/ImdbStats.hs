@@ -7,6 +7,7 @@
 {-# LANGUAGE  QuasiQuotes #-}
 {-# LANGUAGE  StandaloneDeriving #-}
 {-# LANGUAGE  StrictData #-}
+{-# LANGUAGE  TupleSections #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -60,6 +61,11 @@ import Control.Applicative
 import qualified Graphics.Rendering.Chart.Easy as Chart
 import Graphics.Rendering.Chart.Easy ((.=))
 import qualified Graphics.Rendering.Chart.Backend.Diagrams as Chart
+import qualified Network.HTTP.Req as Req
+import Network.HTTP.Req ((/~), (/:), (=:))
+import Data.Default
+import qualified Data.List.Split as Split
+import qualified Control.Retry as Retry
 
 
 data Age = AllAges | LT18 | A18to29 | A30to44 | GT45 deriving (Show, Eq, Ord, Bounded, Enum, Generic, NFData, Aeson.ToJSON, Aeson.FromJSON)
@@ -142,21 +148,57 @@ scrapeWholeList url = rec url 1 Vector.empty
                  return collected
             else rec url (page + 1) (collected <> links)
 
-downloadAllMovies :: FilePath -> [URL.URL] -> IO ()
+loadLinks :: FilePath -> IO [URL.URL]
+loadLinks path = do
+    Just links <- Aeson.decode <$> LBS.readFile path -- TODO mtl, handling errors?
+    return links
+
+newtype MovieId = MovieId { getMovieId :: Text.Text } deriving (Show)
+
+extractId :: URL.URL -> MovieId
+extractId = MovieId . Text.pack . (!! 1) . Split.splitOn "/" . URL.url_path
+
+downloadAllMovies :: FilePath -> [MovieId] -> IO ()
 downloadAllMovies folder =
     S.drain
+    . S.mapM (print . fst)
+    . S.indexed
     . S.asyncly
     . S.mapM saveMovie
-    . S.maxBuffer 200
+    . S.maxRate 10
     . S.mapM downloadMovie
     . S.fromList
     where
-        downloadMovie :: URL.URL -> IO (URL.URL, LBS.ByteString)
-        downloadMovie url =
-            undefined
+        downloadMovie :: MovieId -> IO (MovieId, LBS.ByteString)
+        downloadMovie movieId =
+            Req.runReq 
+                def { Req.httpConfigRetryPolicy = Retry.retryPolicy $ const $ Just 1000 } 
+             $  (movieId,)
+            <$> Req.responseBody
+            <$> Req.req
+                Req.GET
+                (Req.https "www.imdb.com" /: "title" /: (getMovieId movieId) /: "ratings")
+                -- TODO unite with proper url making
+                Req.NoReqBody
+                Req.lbsResponse
+                ("ref_" =: ("tt_ov_rt" :: Text.Text))
 
-        saveMovie :: (URL.URL, LBS.ByteString) -> IO ()
-        saveMovie = undefined
+        saveMovie :: (MovieId, LBS.ByteString) -> IO ()
+        saveMovie (movieId, body) = 
+            LBS.writeFile [i|#{folder}/#{getMovieId movieId}.html|] body -- TODO: path package
+
+badRequestTest :: IO LBS.ByteString
+badRequestTest =
+    Req.runReq 
+        def -- { Req.httpConfigRetryPolicy = Retry.retryPolicy $ const $ Just 1000 }
+    $ Req.responseBody
+    <$> Req.req
+        Req.GET
+        (Req.https "httpbin.org" /: "status" /: (Text.pack $ show 504))
+        -- TODO unite with proper url making
+        Req.NoReqBody
+        Req.lbsResponse
+        mempty
 
 data Movie = Movie { movieURL :: URL.URL, ratingTable :: RatingTable }
     deriving (Show, Generic, NFData, Aeson.ToJSON, Aeson.FromJSON)
